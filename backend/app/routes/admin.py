@@ -256,6 +256,58 @@ async def get_infra_leases():
     }
 
 
+@router.post("/reset")
+async def reset_pipeline():
+    """Wipe all pipeline state and start fresh."""
+    try:
+        from app import db, elastic_client, kafka_client
+        import time
+
+        # 1. Truncate all hpe_* Postgres tables and reset stats
+        logger.warning("[FRESH RESTART] Wiping PostgreSQL state")
+        db.execute_query("TRUNCATE TABLE hpe_admin_alerts, hpe_admin_audit_log, hpe_infra_leases, hpe_credential_rotations CASCADE")
+        db.execute_query("UPDATE hpe_admin_stats SET total_alerts_created=0, total_approved=0, total_rejected=0, total_auto_allowed=0 WHERE id=1")
+        db.execute_query("UPDATE hpe_pipeline_metrics SET total_requests=0, total_threats=0, total_allowed=0, total_monitored=0, total_blocked=0, total_critical=0, total_latency_ms=0, attack_types='{}' WHERE id=1")
+        db.execute_query("UPDATE hpe_simulation_state SET sim_index=0 WHERE id=1")
+        
+        # 2. Reset in-memory caches
+        from app import threat_engine
+        import app.routes.simulate as simulate_route
+        threat_engine._metrics = {
+            "total_requests": 0, "total_threats": 0, "total_allowed": 0,
+            "total_monitored": 0, "total_blocked": 0, "total_critical": 0,
+            "total_latency_ms": 0.0, "attack_types": {},
+        }
+        threat_engine._pending_updates = 0
+        simulate_route._sim_index = 0
+        simulate_route._sim_batch_count = 0
+
+        # 3. Delete Kafka topics
+        logger.warning("[FRESH RESTART] Wiping Kafka topics")
+        if kafka_client.is_connected() and kafka_client._admin:
+            try:
+                from app.config import KAFKA_RAW_EVENTS_TOPIC, KAFKA_ALERTS_TOPIC, KAFKA_AUDIT_TOPIC
+                kafka_client._admin.delete_topics([KAFKA_RAW_EVENTS_TOPIC, KAFKA_ALERTS_TOPIC, KAFKA_AUDIT_TOPIC])
+                time.sleep(2)  # Give Kafka time to delete
+            except Exception as e:
+                logger.error(f"Kafka topic deletion error: {e}")
+        
+        # 4. Delete ES indices
+        logger.warning("[FRESH RESTART] Wiping Elasticsearch indices")
+        if elastic_client.is_connected() and elastic_client._es:
+            try:
+                elastic_client._es.indices.delete(index='hpe-audit-logs', ignore_unavailable=True)
+                elastic_client._es.indices.delete(index='hpe-threats', ignore_unavailable=True)
+                time.sleep(1)
+            except Exception as e:
+                logger.error(f"ES index deletion error: {e}")
+
+        return {"success": True, "message": "Pipeline reset complete"}
+    except Exception as e:
+        logger.error(f"[FRESH RESTART] Failed: {e}")
+        return {"success": False, "message": str(e)}
+
+
 @router.websocket("/ws")
 async def admin_websocket(websocket: WebSocket):
     await websocket.accept()

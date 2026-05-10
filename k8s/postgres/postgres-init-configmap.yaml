@@ -1,0 +1,121 @@
+# Init SQL schema loaded via ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+  namespace: hpe
+  labels:
+    app: postgres
+data:
+  01_schema.sql: |
+    -- HPE audit database schema
+    -- Runs automatically on first postgres container startup
+    -- Vault's dynamic service users get SELECT/INSERT/UPDATE on these tables
+
+    CREATE TABLE IF NOT EXISTS hpe_audit_logs (
+        id           SERIAL PRIMARY KEY,
+        event_id     VARCHAR(64)  NOT NULL,
+        timestamp    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        user_id      VARCHAR(32),
+        action       VARCHAR(64),
+        threat_score FLOAT,
+        is_threat    BOOLEAN      DEFAULT FALSE,
+        source_ip    VARCHAR(45),
+        details      JSONB
+    );
+
+    CREATE TABLE IF NOT EXISTS hpe_credential_rotations (
+        id             SERIAL PRIMARY KEY,
+        rotation_id    VARCHAR(64)  NOT NULL,
+        timestamp      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        rotation_type  VARCHAR(32)  NOT NULL,
+        target         VARCHAR(128) NOT NULL,
+        trigger_score  FLOAT,
+        lease_id       VARCHAR(256),
+        lease_duration INTEGER,
+        success        BOOLEAN      DEFAULT TRUE
+    );
+
+    CREATE TABLE IF NOT EXISTS hpe_infra_leases (
+        id         SERIAL PRIMARY KEY,
+        service    VARCHAR(64)  NOT NULL,
+        lease_id   VARCHAR(256) NOT NULL,
+        username   VARCHAR(128),
+        issued_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ,
+        revoked    BOOLEAN      DEFAULT FALSE,
+        revoked_at TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS hpe_pipeline_metrics (
+        id              INTEGER PRIMARY KEY DEFAULT 1,
+        total_requests  BIGINT DEFAULT 0,
+        total_threats   BIGINT DEFAULT 0,
+        total_allowed   BIGINT DEFAULT 0,
+        total_monitored BIGINT DEFAULT 0,
+        total_blocked   BIGINT DEFAULT 0,
+        total_critical  BIGINT DEFAULT 0,
+        total_latency_ms DOUBLE PRECISION DEFAULT 0,
+        attack_types    JSONB DEFAULT '{}',
+        updated_at      TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT single_row CHECK (id = 1)
+    );
+    INSERT INTO hpe_pipeline_metrics (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+    CREATE TABLE IF NOT EXISTS hpe_admin_alerts (
+        alert_id        VARCHAR(16) PRIMARY KEY,
+        event_id        VARCHAR(64) NOT NULL,
+        user_id         VARCHAR(32),
+        threat_score    FLOAT,
+        threat_action   VARCHAR(32),
+        xgb_score       FLOAT,
+        lgb_score       FLOAT,
+        ensemble_score  FLOAT,
+        threshold       FLOAT,
+        event_data      JSONB,
+        pipeline_stages JSONB,
+        source_geo      JSONB,
+        destination_geo JSONB,
+        total_latency_ms FLOAT,
+        status          VARCHAR(16) DEFAULT 'pending',
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        resolved_at     TIMESTAMPTZ,
+        resolved_by     VARCHAR(32) DEFAULT 'admin',
+        admin_notes     TEXT DEFAULT '',
+        rotation_result JSONB
+    );
+
+    CREATE TABLE IF NOT EXISTS hpe_admin_audit_log (
+        id          SERIAL PRIMARY KEY,
+        action      VARCHAR(16) NOT NULL,
+        alert_id    VARCHAR(16),
+        user_id     VARCHAR(32),
+        threat_score FLOAT,
+        admin_notes TEXT DEFAULT '',
+        timestamp   TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS hpe_admin_stats (
+        id                    INTEGER PRIMARY KEY DEFAULT 1,
+        total_alerts_created  BIGINT DEFAULT 0,
+        total_approved        BIGINT DEFAULT 0,
+        total_rejected        BIGINT DEFAULT 0,
+        total_auto_allowed    BIGINT DEFAULT 0,
+        CONSTRAINT single_stats_row CHECK (id = 1)
+    );
+    INSERT INTO hpe_admin_stats (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+    CREATE TABLE IF NOT EXISTS hpe_simulation_state (
+        id        INTEGER PRIMARY KEY DEFAULT 1,
+        sim_index BIGINT DEFAULT 0,
+        CONSTRAINT single_sim_row CHECK (id = 1)
+    );
+    INSERT INTO hpe_simulation_state (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+    -- Grant vault-root full control so Vault can CREATE/DROP dynamic service users
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "vault-root";
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "vault-root";
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT ALL ON TABLES TO "vault-root";
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT ALL ON SEQUENCES TO "vault-root";

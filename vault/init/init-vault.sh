@@ -13,11 +13,12 @@ APPROLE_FILE="/vault/data/.approle_configured"
 echo ">>> Waiting for Vault API to be reachable..."
 i=0
 while [ $i -lt 40 ]; do
-  HTTP_CODE=$(wget -qO- --server-response "$VAULT_ADDR/v1/sys/health" 2>&1 \
-    | grep "HTTP/" | awk '{print $2}' | tail -1)
-  case "$HTTP_CODE" in
-    200|429|472|473|501|503) break ;;
-  esac
+  vault status -address="$VAULT_ADDR" >/dev/null 2>&1
+  EXIT_CODE=$?
+  # 0 = unsealed, 2 = sealed/uninitialized
+  if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 2 ]; then
+    break
+  fi
   echo "    Waiting... attempt $i/40"
   i=$((i+1))
   sleep 3

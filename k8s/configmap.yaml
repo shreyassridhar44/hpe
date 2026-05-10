@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hpe-config
+  namespace: hpe
+  labels:
+    app: hpe-pipeline
+data:
+  # Kafka — both brokers for resilient bootstrap
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-0.kafka-headless.hpe.svc.cluster.local:9092,kafka-1.kafka-headless.hpe.svc.cluster.local:9092"
+
+  # Elasticsearch
+  ELASTICSEARCH_URL: "http://elasticsearch.hpe.svc.cluster.local:9200"
+
+  # Vault
+  VAULT_ADDR: "http://vault.hpe.svc.cluster.local:8200"
+
+  # PostgreSQL
+  POSTGRES_URL: "postgresql://vault-root:vault-root-secret@postgres.hpe.svc.cluster.local:5432/hpedb"
+
+  # Model paths (baked into Docker image)
+  MODEL_PATH: "/app/model_output/pipeline_artifacts_v2.joblib"
+  TEST_EVENTS_PATH: "/app/model_output/test_events.json"
+  PROFILES_PATH: "/app/model_output/user_profiles.json"
+
+  # AppRole credentials file (shared vault-data PVC)
+  VAULT_APPROLE_CREDS_FILE: "/vault/data/.approle_credentials"

@@ -1,0 +1,15 @@
+# Shared PVC for Vault data — mounted by vault, vault-init, and backend
+# Vault writes Raft storage + AppRole credentials here
+# Backend reads .approle_credentials from here (readOnly)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vault-data
+  namespace: hpe
+  labels:
+    app: vault
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

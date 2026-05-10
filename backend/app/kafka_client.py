@@ -180,9 +180,9 @@ def connect_kafka() -> bool:
         # Admin client — create topics
         _admin = AdminClient(conf)
         topics = [
-            NewTopic(KAFKA_RAW_EVENTS_TOPIC, num_partitions=3, replication_factor=1),
-            NewTopic(KAFKA_ALERTS_TOPIC, num_partitions=1, replication_factor=1),
-            NewTopic(KAFKA_AUDIT_TOPIC, num_partitions=1, replication_factor=1),
+            NewTopic(KAFKA_RAW_EVENTS_TOPIC, num_partitions=3, replication_factor=2),
+            NewTopic(KAFKA_ALERTS_TOPIC, num_partitions=2, replication_factor=2),
+            NewTopic(KAFKA_AUDIT_TOPIC, num_partitions=2, replication_factor=2),
         ]
         futures = _admin.create_topics(topics)
         for topic, future in futures.items():

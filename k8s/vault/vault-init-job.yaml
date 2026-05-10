@@ -1,0 +1,45 @@
+# Vault initialization Job — runs once after Vault + PostgreSQL are ready
+# Handles Phase 1 (init/unseal), Phase 2 (database engine), Phase 3 (AppRole)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: hpe
+  labels:
+    app: vault-init
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: vault-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: vault-init
+          image: hashicorp/vault:1.15.6
+          command: ["sh", "/vault/init/init-vault.sh"]
+          env:
+            - name: VAULT_ADDR
+              value: "http://vault.hpe.svc.cluster.local:8200"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+            - name: init-script
+              mountPath: /vault/init
+              readOnly: true
+      volumes:
+        - name: vault-data
+          persistentVolumeClaim:
+            claimName: vault-data
+        - name: init-script
+          configMap:
+            name: vault-init-script
+            defaultMode: 0755

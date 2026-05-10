@@ -301,6 +301,28 @@ async function initDashboardFromBackend() {
     if (Object.keys(state.attackTypes).length > 0) {
       updateAttackBreakdown();
     }
+    
+    // Hydrate threat feed
+    try {
+      const feedRes = await fetch('/api/elasticsearch/recent-threats?size=20');
+      if (feedRes.ok) {
+        const feedData = await feedRes.json();
+        if (feedData.threats && feedData.threats.length > 0) {
+          state.threatFeed = feedData.threats.map(t => ({
+            threat_score: t.threat_score,
+            event_summary: {
+              user: t.user,
+              source_ip: t.source_ip,
+              anomaly_type: t.attack_type,
+            },
+            time: new Date(t.timestamp).toLocaleTimeString(),
+          }));
+          updateThreatFeed();
+        }
+      }
+    } catch(e) {
+       console.warn('[HPE] Could not fetch initial threat feed from ES');
+    }
 
     console.log(`[HPE] Dashboard initialized: ${state.totalProcessed} events, ${state.totalThreats} threats`);
   } catch (e) {

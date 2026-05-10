@@ -28,8 +28,13 @@ from app import admin_store
 
 logger = logging.getLogger("hpe.threat_engine")
 
-# ── Global metrics ─────────────────────────────────────────────────────────────
-_metrics = {
+import json
+from app import db
+
+import threading
+
+# ── Local Deltas (Thread-Safe) ────────────────────────────────────────────────
+_local_deltas = {
     "total_requests": 0,
     "total_threats": 0,
     "total_allowed": 0,
@@ -39,18 +44,113 @@ _metrics = {
     "total_latency_ms": 0.0,
     "attack_types": {},
 }
+_metrics_lock = threading.Lock()
+
+_pending_updates = 0
+_BATCH_SIZE = 10
+
+def load_metrics_from_db():
+    """No longer caches in memory. DB is the source of truth."""
+    pass
+
+def flush_metrics_to_db():
+    """Flush pending local deltas to Postgres using atomic increments."""
+    global _pending_updates
+    if _pending_updates == 0:
+        return
+        
+    try:
+        with _metrics_lock:
+            # Snapshot the deltas
+            deltas = {k: v for k, v in _local_deltas.items() if k != "attack_types"}
+            attack_deltas = dict(_local_deltas["attack_types"])
+            
+            # Reset local deltas
+            for k in deltas.keys():
+                _local_deltas[k] = 0 if k != "total_latency_ms" else 0.0
+            _local_deltas["attack_types"] = {}
+            _pending_updates = 0
+
+        # Atomic increment query
+        query = """
+            UPDATE hpe_pipeline_metrics SET
+                total_requests = total_requests + %s,
+                total_threats = total_threats + %s,
+                total_allowed = total_allowed + %s,
+                total_monitored = total_monitored + %s,
+                total_blocked = total_blocked + %s,
+                total_critical = total_critical + %s,
+                total_latency_ms = total_latency_ms + %s,
+                updated_at = NOW()
+            WHERE id = 1
+        """
+        params = (
+            deltas["total_requests"],
+            deltas["total_threats"],
+            deltas["total_allowed"],
+            deltas["total_monitored"],
+            deltas["total_blocked"],
+            deltas["total_critical"],
+            deltas["total_latency_ms"],
+        )
+        db.execute_query(query, params)
+        
+        # Merge attack types if any (since it's JSONB, we just read and update)
+        if attack_deltas:
+            row = db.execute_query("SELECT attack_types FROM hpe_pipeline_metrics WHERE id = 1", fetch=True)
+            if row:
+                current_attacks = row.get("attack_types", {})
+                if isinstance(current_attacks, str):
+                    current_attacks = json.loads(current_attacks)
+                for atk, count in attack_deltas.items():
+                    current_attacks[atk] = current_attacks.get(atk, 0) + count
+                db.execute_query("UPDATE hpe_pipeline_metrics SET attack_types = %s WHERE id = 1", (json.dumps(current_attacks),))
+
+    except Exception as e:
+        logger.error(f"Failed to flush metrics to DB: {e}")
 
 
 def get_metrics() -> Dict[str, Any]:
-    """Get current pipeline metrics."""
-    avg_latency = (_metrics["total_latency_ms"] / max(_metrics["total_requests"], 1))
-    return {
-        **_metrics,
-        "avg_latency_ms": round(avg_latency, 2),
-        "model_metrics": inference.get_artifacts().get("metrics", {}) if inference.get_artifacts() else {},
-        "infra_rotation_count": vault_infra_client.get_infra_rotation_count(),
-        "active_infra_leases": len(vault_infra_client.get_active_leases()),
-    }
+    """Get current pipeline metrics (DB total + local unflushed deltas)."""
+    try:
+        row = db.execute_query("SELECT * FROM hpe_pipeline_metrics WHERE id = 1", fetch=True)
+        if not row:
+            return {}
+            
+        with _metrics_lock:
+            # Combine DB values with unflushed local deltas for real-time accuracy
+            total_requests = row.get("total_requests", 0) + _local_deltas["total_requests"]
+            total_threats = row.get("total_threats", 0) + _local_deltas["total_threats"]
+            total_allowed = row.get("total_allowed", 0) + _local_deltas["total_allowed"]
+            total_monitored = row.get("total_monitored", 0) + _local_deltas["total_monitored"]
+            total_blocked = row.get("total_blocked", 0) + _local_deltas["total_blocked"]
+            total_critical = row.get("total_critical", 0) + _local_deltas["total_critical"]
+            total_latency_ms = row.get("total_latency_ms", 0.0) + _local_deltas["total_latency_ms"]
+            
+            attack_types = row.get("attack_types", {})
+            if isinstance(attack_types, str):
+                attack_types = json.loads(attack_types)
+            for atk, count in _local_deltas["attack_types"].items():
+                attack_types[atk] = attack_types.get(atk, 0) + count
+
+        avg_latency = (total_latency_ms / max(total_requests, 1))
+
+        return {
+            "total_requests": total_requests,
+            "total_threats": total_threats,
+            "total_allowed": total_allowed,
+            "total_monitored": total_monitored,
+            "total_blocked": total_blocked,
+            "total_critical": total_critical,
+            "avg_latency_ms": round(avg_latency, 2),
+            "attack_types": attack_types,
+            "model_metrics": inference.get_artifacts().get("metrics", {}) if inference.get_artifacts() else {},
+            "infra_rotation_count": vault_infra_client.get_infra_rotation_count(),
+            "active_infra_leases": len(vault_infra_client.get_active_leases()),
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch metrics: {e}")
+        return {}
 
 
 def determine_action(threat_score: float) -> ThreatAction:
@@ -330,22 +430,23 @@ def process_event(event: NetworkEvent) -> PredictionResult:
     # ── Compute totals ────────────────────────────────────────────────────────
     total_latency = (time.time() - t0) * 1000
 
-    _metrics["total_requests"] += 1
-    _metrics["total_latency_ms"] += total_latency
-    if is_threat:
-        _metrics["total_threats"] += 1
-    _action_key_map = {
-        ThreatAction.ALLOW:          "total_allowed",
-        ThreatAction.MONITOR:        "total_monitored",
-        ThreatAction.BLOCK:          "total_blocked",
-        ThreatAction.CRITICAL_ALERT: "total_critical",
-    }
-    action_key = _action_key_map.get(threat_action)
-    if action_key:
-        _metrics[action_key] += 1
-    if is_threat:
-        at = event_dict.get("anomaly_type", "unknown")
-        _metrics["attack_types"][at] = _metrics["attack_types"].get(at, 0) + 1
+    with _metrics_lock:
+        _local_deltas["total_requests"] += 1
+        _local_deltas["total_latency_ms"] += total_latency
+        if is_threat:
+            _local_deltas["total_threats"] += 1
+        _action_key_map = {
+            ThreatAction.ALLOW:          "total_allowed",
+            ThreatAction.MONITOR:        "total_monitored",
+            ThreatAction.BLOCK:          "total_blocked",
+            ThreatAction.CRITICAL_ALERT: "total_critical",
+        }
+        action_key = _action_key_map.get(threat_action)
+        if action_key:
+            _local_deltas[action_key] += 1
+        if is_threat:
+            at = event_dict.get("anomaly_type", "unknown")
+            _local_deltas["attack_types"][at] = _local_deltas["attack_types"].get(at, 0) + 1
 
     # ── Geo mapping ───────────────────────────────────────────────────────────
     region_geo = {
@@ -397,7 +498,13 @@ def process_event(event: NetworkEvent) -> PredictionResult:
             destination_geo=dst_geo,
             total_latency_ms=round(total_latency, 2),
         )
-        alert_id = admin_alert["alert_id"]
+        if admin_alert:
+            alert_id = admin_alert["alert_id"]
+
+    global _pending_updates
+    _pending_updates += 1
+    if _pending_updates >= _BATCH_SIZE:
+        flush_metrics_to_db()
 
     return PredictionResult(
         event_id=event_id,

@@ -1,0 +1,114 @@
+# Backend — 2 replicas, load-balanced by K8s Service
+# Mounts vault-data PVC to read AppRole credentials (Phase 3)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: hpe
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # Wait for all infra services before starting
+      initContainers:
+        - name: wait-for-deps
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for at least one Kafka broker..."
+              until nc -z kafka-0.kafka-headless.hpe.svc.cluster.local 9092 2>/dev/null \
+                 || nc -z kafka-1.kafka-headless.hpe.svc.cluster.local 9092 2>/dev/null; do
+                echo "  No Kafka broker reachable yet, retrying in 3s..."
+                sleep 3
+              done
+              echo "Kafka is reachable"
+
+              echo "Waiting for Elasticsearch..."
+              until nc -z elasticsearch.hpe.svc.cluster.local 9200; do sleep 2; done
+              echo "Elasticsearch is reachable"
+
+              echo "Waiting for Vault..."
+              until nc -z vault.hpe.svc.cluster.local 8200; do sleep 2; done
+              echo "Vault is reachable"
+
+              echo "Waiting for PostgreSQL..."
+              until nc -z postgres.hpe.svc.cluster.local 5432; do sleep 2; done
+              echo "PostgreSQL is reachable"
+
+              echo "Waiting for AppRole credentials file..."
+              until [ -f /vault/data/.approle_credentials ]; do
+                echo "  .approle_credentials not found yet, retrying in 3s..."
+                sleep 3
+              done
+              echo "AppRole credentials file found"
+
+              echo "All dependencies are up — starting backend"
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+              readOnly: true
+      containers:
+        - name: backend
+          image: hpe-backend:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: hpe-config
+          env:
+            # Override local paths with explicit container paths
+            - name: MODEL_PATH
+              value: "/app/model_output/pipeline_artifacts_v2.joblib"
+            - name: TEST_EVENTS_PATH
+              value: "/app/model_output/test_events.json"
+            - name: PROFILES_PATH
+              value: "/app/model_output/user_profiles.json"
+            - name: SAMPLE_EVENTS_PATH
+              value: "/app/model_output/sample_events.json"
+            # Fallback only — AppRole is the primary auth method
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hpe-secrets
+                  key: VAULT_TOKEN
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+      volumes:
+        - name: vault-data
+          persistentVolumeClaim:
+            claimName: vault-data

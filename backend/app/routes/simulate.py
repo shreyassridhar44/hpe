@@ -16,6 +16,7 @@ from app.config import TEST_EVENTS_PATH
 from app.schemas import NetworkEvent
 from app.threat_engine import process_event
 from app import kafka_client
+from app import db
 from app.ws_manager import manager as ws_manager
 
 logger = logging.getLogger("hpe.simulate")
@@ -26,7 +27,27 @@ _test_events = None
 
 # Global simulation position — persists across frontend reconnects
 _sim_index = 0
+_sim_batch_count = 0
+_SIM_BATCH_SIZE = 10
 
+def _load_sim_index():
+    global _sim_index
+    try:
+        row = db.execute_query("SELECT sim_index FROM hpe_simulation_state WHERE id = 1", fetch=True)
+        if row:
+            _sim_index = row.get("sim_index", 0)
+    except Exception as e:
+        logger.error(f"Failed to load sim_index: {e}")
+
+def _save_sim_index():
+    global _sim_index, _sim_batch_count
+    _sim_batch_count += 1
+    if _sim_batch_count >= _SIM_BATCH_SIZE:
+        try:
+            db.execute_query("UPDATE hpe_simulation_state SET sim_index = %s WHERE id = 1", (_sim_index,))
+            _sim_batch_count = 0
+        except Exception as e:
+            logger.error(f"Failed to save sim_index: {e}")
 
 def _load_test_events():
     global _test_events
@@ -56,6 +77,8 @@ async def simulate_stream(websocket: WebSocket):
 
     if _test_events is None:
         _load_test_events()
+
+    _load_sim_index()
 
     total = len(_test_events)
     if total == 0:
@@ -124,9 +147,10 @@ async def simulate_stream(websocket: WebSocket):
 
             # Advance global position
             _sim_index += 1
+            _save_sim_index()
 
             # Log when a full cycle completes
-            if _sim_index % total == 0:
+            if _sim_index > 0 and _sim_index % total == 0:
                 logger.info(f"Simulation completed cycle {_sim_index // total}, looping...")
 
             # Random delay between events (500ms - 2s)

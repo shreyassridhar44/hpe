@@ -36,6 +36,27 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Version: {APP_VERSION}")
     logger.info(f"{'='*60}")
 
+    # Initialize PostgreSQL connection pool
+    try:
+        from app import db
+        db.init_pool()
+    except Exception as e:
+        logger.error(f"[FAIL] PostgreSQL pool init failed: {e}")
+
+    # Load persisted metrics from Postgres
+    try:
+        from app import threat_engine
+        threat_engine.load_metrics_from_db()
+    except Exception as e:
+        logger.error(f"[FAIL] Loading metrics from DB failed: {e}")
+        
+    # Load persisted admin stats
+    try:
+        from app import admin_store
+        admin_store.load_from_db()
+    except Exception as e:
+        logger.error(f"[FAIL] Loading admin store from DB failed: {e}")
+
     # Load ML model artifacts
     try:
         inference.load_model(MODEL_PATH)
@@ -137,6 +158,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down HPE Pipeline...")
+    try:
+        threat_engine.flush_metrics_to_db()
+    except Exception as e:
+        logger.error(f"Failed to flush metrics on shutdown: {e}")
+    try:
+        db.close_pool()
+    except Exception as e:
+        logger.error(f"Failed to close DB pool: {e}")
+
     kafka_client.disconnect_kafka()
     if broadcast_task:
         broadcast_task.cancel()

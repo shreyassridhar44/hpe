@@ -235,6 +235,7 @@ def _init_all_user_secrets():
         return
 
     created = 0
+    updated = 0
     skipped = 0
 
     for profile in _user_profiles:
@@ -251,10 +252,29 @@ def _init_all_user_secrets():
             except Exception:
                 pass
 
-            if existing and existing.get("data", {}).get("data", {}):
-                skipped += 1
+            existing_data = existing.get("data", {}).get("data", {}) if existing else {}
+            
+            # Check if secret exists and has correct metadata
+            if existing_data:
+                target_role = profile.get("role", "Employee")
+                target_region = profile.get("home_region", "Unknown")
+                
+                # If it exists and matches perfectly, skip
+                if existing_data.get("role") == target_role and existing_data.get("home_region") == target_region:
+                    skipped += 1
+                    continue
+                
+                # Otherwise, update the fields but preserve credentials
+                existing_data["role"] = target_role
+                existing_data["home_region"] = target_region
+                _client.secrets.kv.v2.create_or_update_secret(
+                    path=vault_path,
+                    secret=existing_data,
+                )
+                updated += 1
                 continue
 
+            # Creating a new secret
             creds = {
                 "user_id": user_id,
                 "role": profile.get("role", "Employee"),
@@ -278,8 +298,8 @@ def _init_all_user_secrets():
             logger.warning(f"Vault: Failed to init credentials for {user_id}: {e}")
 
     logger.info(
-        f"Vault: Initialized {created} new user credentials, {skipped} already existed "
-        f"(total users: {len(_user_profiles)})"
+        f"Vault: Initialized {created} new users, updated {updated} existing users, "
+        f"skipped {skipped} (total users: {len(_user_profiles)})"
     )
 
 
