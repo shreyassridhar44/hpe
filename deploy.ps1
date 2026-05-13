@@ -71,9 +71,10 @@ kubectl logs job/vault-init -n hpe --tail=10
 
 # Deploy application
 Write-Host ""
-Write-Host "[6/6] Deploying backend and frontend..." -ForegroundColor Yellow
+Write-Host "[6/6] Deploying application components..." -ForegroundColor Yellow
 kubectl apply -f k8s/backend/
 kubectl apply -f k8s/frontend/
+kubectl apply -f k8s/live-pipeline/
 
 # Wait for app pods
 Write-Host ""

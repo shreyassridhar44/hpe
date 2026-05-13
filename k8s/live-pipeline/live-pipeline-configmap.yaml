@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-live-config
+  namespace: hpe
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: log
+        enabled: true
+        paths:
+          - /shared-data/zeek-live/conn.log
+        tail_files: true
+        close_eof: false
+        scan_frequency: 1s
+        exclude_lines: ['^#']
+        fields:
+          event.module: zeek
+          event.dataset: zeek.conn
+          event.kind: event
+          pipeline.source: live-replay
+        processors:
+          - dissect:
+              tokenizer: "%{ts}\t%{orig_uid}\t%{orig_h}\t%{orig_p}\t%{resp_h}\t%{resp_p}\t%{proto}\t%{service}\t%{duration}\t%{orig_bytes}\t%{resp_bytes}\t%{conn_state}\t%{local_orig}\t%{local_resp}\t%{missed_bytes}\t%{history}\t%{orig_pkts}\t%{orig_ip_bytes}\t%{resp_pkts}\t%{resp_ip_bytes}"
+              field: "message"
+          - convert:
+              fields:
+                - {from: "orig_p", to: "orig_p", type: long}
+                - {from: "resp_p", to: "resp_p", type: long}
+                - {from: "duration", to: "duration", type: float}
+                - {from: "orig_bytes", to: "orig_bytes", type: long}
+                - {from: "resp_bytes", to: "resp_bytes", type: long}
+                - {from: "orig_pkts", to: "orig_pkts", type: long}
+                - {from: "resp_pkts", to: "resp_pkts", type: long}
+              ignore_missing: true
+              fail_on_error: false
+          - rename:
+              fields:
+                - from: "orig_uid"
+                  to: "uid"
+                - from: "orig_h"
+                  to: "id.orig_h"
+                - from: "orig_p"
+                  to: "id.orig_p"
+                - from: "resp_h"
+                  to: "id.resp_h"
+                - from: "resp_p"
+                  to: "id.resp_p"
+                - from: "orig_bytes"
+                  to: "source.bytes"
+                - from: "resp_bytes"
+                  to: "destination.bytes"
+                - from: "conn_state"
+                  to: "zeek.conn_state"
+                - from: "orig_pkts"
+                  to: "source.packets"
+                - from: "resp_pkts"
+                  to: "destination.packets"
+
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.hpe.svc.cluster.local:9200"]
+      index: "zeek-conn-%{+yyyy.MM.dd}"
+
+    setup.ilm.enabled: false
+    setup.template.enabled: false
+    logging.level: info
+    logging.to_files: false

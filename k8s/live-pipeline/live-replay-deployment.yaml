@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: live-replay
+  namespace: hpe
+  labels:
+    app: live-replay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: live-replay
+  template:
+    metadata:
+      labels:
+        app: live-replay
+    spec:
+      initContainers:
+        - name: wait-for-es
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Elasticsearch..."
+              until nc -z elasticsearch.hpe.svc.cluster.local 9200; do sleep 2; done
+      containers:
+        # Container 1: The Python Replay Script
+        - name: replay
+          image: hpe-backend:latest
+          imagePullPolicy: Never
+          command: ["python", "scripts/replay_live.py"]
+          args:
+            - "--source"
+            - "/app/dataset/zeek/conn.log"
+            - "--output"
+            - "/shared-data/zeek-live/conn.log"
+            - "--rate"
+            - "50"
+            - "--loop"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+
+        # Container 2: Filebeat Sidecar
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.15.0
+          securityContext:
+            runAsUser: 0
+          command: ["filebeat", "-e", "-c", "/usr/share/filebeat/filebeat.yml", "--strict.perms=false"]
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+            - name: filebeat-config
+              mountPath: /usr/share/filebeat/filebeat.yml
+              subPath: filebeat.yml
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+        - name: filebeat-config
+          configMap:
+            name: filebeat-live-config

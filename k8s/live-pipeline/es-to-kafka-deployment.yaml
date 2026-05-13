@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-to-kafka
+  namespace: hpe
+  labels:
+    app: es-to-kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: es-to-kafka
+  template:
+    metadata:
+      labels:
+        app: es-to-kafka
+    spec:
+      initContainers:
+        - name: wait-for-deps
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka..."
+              until nc -z kafka-0.kafka-headless.hpe.svc.cluster.local 9092 2>/dev/null; do sleep 3; done
+              
+              echo "Waiting for Elasticsearch..."
+              until nc -z elasticsearch.hpe.svc.cluster.local 9200; do sleep 2; done
+      containers:
+        - name: es-to-kafka
+          image: hpe-backend:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c"]
+          args:
+            - "sleep 15 && python scripts/es_to_kafka.py --es-url http://elasticsearch.hpe.svc.cluster.local:9200 --kafka-servers kafka-0.kafka-headless.hpe.svc.cluster.local:9092,kafka-1.kafka-headless.hpe.svc.cluster.local:9092 --index zeek-conn-* --topic hpe-raw-events --watch --poll-interval 5"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

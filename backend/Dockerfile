@@ -17,6 +17,7 @@ COPY backend/app/ ./app/
 # Bake model artifacts + dataset into image (no volume mount in k8s)
 COPY model_output/ ./model_output/
 COPY dataset/ ./dataset/
+COPY scripts/ ./scripts/
 
 EXPOSE 8000
 
