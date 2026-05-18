@@ -110,8 +110,8 @@ This deploys the entire pipeline into a Kubernetes cluster with **HA replicas** 
 | PostgreSQL | StatefulSet | 1 | Init ConfigMap for schema + extensions |
 | Vault | StatefulSet | 1 | Raft storage on PVC, server mode |
 | Vault Init | Job | 1 (run-once) | Phases 1-5: init, unseal, DB engine, AppRole, Kafka creds |
-| Backend | Deployment | 2 | Init container waits for all deps + `.approle_credentials` |
-| Frontend | Deployment | 2 | Vite dev server behind NodePort |
+| Backend | Deployment | 5| Init container waits for all deps + `.approle_credentials` |
+| Frontend | Deployment | 3 | Vite dev server behind NodePort |
 
 #### Prerequisites
 * **Minikube** installed and running (`minikube start --memory=8192 --cpus=4`)
@@ -335,6 +335,13 @@ k8s/
 │   ├── postgres-init-configmap.yaml  # Schema, pgcrypto, tables
 │   ├── postgres-service.yaml
 │   └── postgres-statefulset.yaml
+├── live-pipeline/
+│   ├── es-to-kafka-deployment.yaml
+│   ├── live-pipeline-configmap.yaml
+│   └── live-replay-deployment.yaml
+redis/
+├── redis-deployment.yaml
+├── redis-service.yaml
 ├── vault/
 │   ├── vault-config-configmap.yaml   # vault.hcl server config
 │   ├── vault-init-configmap.yaml     # Full init script (5 phases)
