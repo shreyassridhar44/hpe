@@ -17,12 +17,12 @@ from app.routes.auth import RegisterRequest
 class TestVpnThreatScenarios:
     """Showcases isolated test cases for VPN user connection and registration anomalies."""
 
-    def test_vpn_scenario_1_geo_mismatch_monitor(self):
+    def test_vpn_scenario_1_geo_mismatch_block(self):
         """
         VPN Scenario 1: User logs in from a Commercial VPN located in Frankfurt.
         Apparent region is Frankfurt (EU-Central) but typical home profile is US-East.
         Expects:
-          - Threat action = MONITOR
+          - Threat action = BLOCK
           - Threat reasons include: 'Geographic Mismatch via Commercial VPN Exit Node (Germany)'
         """
         event = NetworkEvent(
@@ -44,7 +44,7 @@ class TestVpnThreatScenarios:
         
         result = process_event(event)
         assert result.is_threat is True
-        assert result.threat_action == ThreatAction.MONITOR
+        assert result.threat_action == ThreatAction.BLOCK
         reasons = result.event_summary.get("threat_reasons", [])
         assert any("Geographic Mismatch via Commercial VPN Exit Node" in r for r in reasons)
 
