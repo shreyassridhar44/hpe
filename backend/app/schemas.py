@@ -50,6 +50,8 @@ class NetworkEvent(BaseModel):
     # Attack metadata (for evaluation, not features)
     is_injected_anomaly: Optional[bool] = False
     anomaly_type: Optional[str] = "None"
+    event_source: Optional[str] = "replayed_dataset"
+    is_vpn: Optional[bool] = False
 
     class Config:
         json_schema_extra = {

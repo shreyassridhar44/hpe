@@ -2086,3 +2086,300 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+.admin-btn-action {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-btn-action.approve {
+  background: rgba(57, 255, 20, 0.1);
+  color: var(--lime);
+  border-color: rgba(57, 255, 20, 0.2);
+}
+
+.admin-btn-action.approve:hover {
+  background: rgba(57, 255, 20, 0.2);
+  border-color: var(--lime);
+}
+
+.admin-btn-action.reject {
+  background: rgba(255, 0, 110, 0.05);
+  color: var(--magenta);
+  border-color: rgba(255, 0, 110, 0.1);
+}
+
+.admin-btn-action.reject:hover {
+  background: rgba(255, 0, 110, 0.15);
+  border-color: var(--magenta);
+}
+
+/* Visual Source Identification Badges */
+.badge-live {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+.badge-replayed {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 4px;
+  background: rgba(192, 132, 252, 0.1);
+  color: var(--purple);
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+
+/* Trigger Reasons List */
+.admin-reasons-list {
+  margin-top: 8px;
+  padding-left: 16px;
+}
+
+.admin-reasons-list li {
+  font-size: 12px;
+  color: var(--magenta);
+  margin-bottom: 4px;
+  list-style-type: square;
+}
+
+/* VPN Registration Warning Badge */
+.badge-vpn-warn {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--amber);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  margin-left: 8px;
+}
+
+/* ── VPN Login Alert Banner ───────────────────────────────────────────────── */
+.vpn-alert-container {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+  width: 560px;
+  max-width: 90vw;
+}
+
+.vpn-alert-banner {
+  pointer-events: auto;
+  background: rgba(15, 15, 20, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--magenta);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow:
+    0 0 20px rgba(244, 63, 94, 0.3),
+    0 0 60px rgba(244, 63, 94, 0.1),
+    0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: vpn-alert-slide-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+             vpn-alert-glow 2s ease-in-out infinite 0.5s;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), border-color 0.2s, box-shadow 0.2s;
+}
+
+.vpn-alert-banner:hover {
+  transform: scale(1.015);
+  border-color: var(--amber);
+  box-shadow:
+    0 0 25px rgba(245, 158, 11, 0.3),
+    0 0 70px rgba(245, 158, 11, 0.12),
+    0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.vpn-alert-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--magenta), var(--amber), var(--magenta));
+  background-size: 200% 100%;
+  animation: vpn-border-sweep 2s linear infinite;
+}
+
+.vpn-alert-banner.dismissing {
+  animation: vpn-alert-slide-out 0.4s ease-in forwards;
+}
+
+.vpn-alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.vpn-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--magenta);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-family: var(--font-mono);
+}
+
+.vpn-alert-title .vpn-shield-icon {
+  font-size: 20px;
+  animation: vpn-icon-pulse 1.5s ease-in-out infinite;
+}
+
+.vpn-alert-close {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.vpn-alert-close:hover {
+  background: rgba(244, 63, 94, 0.2);
+  color: var(--magenta);
+  border-color: var(--magenta);
+}
+
+.vpn-alert-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.vpn-alert-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vpn-alert-field-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.vpn-alert-field-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.vpn-alert-field-value.vpn-ip {
+  color: var(--cyan);
+}
+
+.vpn-alert-field-value.vpn-provider {
+  color: var(--amber);
+}
+
+.vpn-alert-field-value.vpn-status-success {
+  color: var(--lime);
+}
+
+.vpn-alert-field-value.vpn-status-failure {
+  color: var(--magenta);
+}
+
+.vpn-alert-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.vpn-alert-countdown {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+/* VPN Badge in threat feed items */
+.vpn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 8px;
+  font-weight: 700;
+  border-radius: 3px;
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--magenta);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  animation: vpn-badge-pulse 3s ease-in-out infinite;
+}
+
+@keyframes vpn-alert-slide-in {
+  0% { opacity: 0; transform: translateY(-30px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes vpn-alert-slide-out {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-20px) scale(0.95); }
+}
+
+@keyframes vpn-alert-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(244, 63, 94, 0.3), 0 0 60px rgba(244, 63, 94, 0.1), 0 20px 60px rgba(0,0,0,0.5); }
+  50% { box-shadow: 0 0 30px rgba(244, 63, 94, 0.5), 0 0 80px rgba(244, 63, 94, 0.2), 0 20px 60px rgba(0,0,0,0.5); }
+}
+
+@keyframes vpn-border-sweep {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes vpn-icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes vpn-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}

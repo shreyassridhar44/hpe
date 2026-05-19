@@ -53,6 +53,11 @@ export function renderAdminDashboard(containerId) {
         <div class="admin-panel-header">
           <span class="admin-panel-title">🔔 Alert Queue</span>
           <div class="admin-filter-row">
+            <select id="admin-source-filter" class="admin-filter-select">
+              <option value="">All Sources</option>
+              <option value="live_portal">🌐 Live Portal</option>
+              <option value="replayed_dataset">📊 Replayed Dataset</option>
+            </select>
             <select id="admin-status-filter" class="admin-filter-select">
               <option value="">All Status</option>
               <option value="pending" selected>Pending</option>
@@ -78,6 +83,29 @@ export function renderAdminDashboard(containerId) {
           <div class="admin-detail-placeholder-icon">🔍</div>
           <div class="admin-detail-placeholder-text">Select an alert to view forensic details</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Pending Registrations -->
+    <div class="admin-audit-section">
+      <div class="admin-panel-header">
+        <span class="admin-panel-title">👤 Pending Access Requests</span>
+        <span class="admin-audit-count" id="admin-reg-count">0 requests</span>
+      </div>
+      <div class="admin-audit-table-wrapper">
+        <table class="admin-audit-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Department</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="admin-reg-tbody">
+            <tr><td colspan="4" class="admin-empty">No pending registrations</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -118,6 +146,7 @@ export function renderAdminDashboard(containerId) {
   `;
 
   // Setup filter listeners
+  document.getElementById('admin-source-filter')?.addEventListener('change', renderAlertList);
   document.getElementById('admin-status-filter')?.addEventListener('change', loadAlerts);
   document.getElementById('admin-severity-filter')?.addEventListener('change', loadAlerts);
   document.getElementById('admin-toast-close')?.addEventListener('click', hideToast);
@@ -126,12 +155,96 @@ export function renderAdminDashboard(containerId) {
   loadAlerts();
   loadAdminStats();
   loadAuditLog();
+  loadRegistrations();
 
   // Poll for updates
   setInterval(loadAlerts, 5000);
   setInterval(loadAdminStats, 5000);
   setInterval(loadAuditLog, 10000);
+  setInterval(loadRegistrations, 10000);
 }
+
+
+/**
+ * Load pending user registrations
+ */
+async function loadRegistrations() {
+  try {
+    const res = await fetch('/api/admin/registrations');
+    if (!res.ok) return;
+    const data = await res.json();
+    const registrations = data.registrations || [];
+
+    updateEl('admin-reg-count', `${registrations.length} requests`);
+
+    const tbody = document.getElementById('admin-reg-tbody');
+    if (!tbody) return;
+
+    if (registrations.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="admin-empty">No pending registrations</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = registrations.map(reg => {
+      const vpnBadgeHtml = reg.is_vpn
+        ? `<span class="badge-vpn-warn">⚠️ VPN IP Endpoint</span>`
+        : '';
+      return `
+        <tr>
+          <td><strong>${reg.username}</strong></td>
+          <td>${reg.department || '--'}${vpnBadgeHtml}</td>
+          <td><span class="admin-stage-status pending">PENDING</span></td>
+          <td>
+            <div style="display: flex; gap: 8px;">
+              <button class="admin-btn-action approve" onclick="window._approveReg('${reg.username}')">Approve</button>
+              <button class="admin-btn-action reject" onclick="window._rejectReg('${reg.username}')">Reject</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) { /* Ignore */ }
+}
+
+
+window._approveReg = async function (username) {
+  const password = prompt(`Enter temporary password for ${username}:`);
+  if (!password) return;
+
+  try {
+    const res = await fetch(`/api/admin/registrations/${username}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('✅ User Approved', `${username} is now active with the provided credentials.`);
+      loadRegistrations();
+    } else {
+      showToast('❌ Error', data.message || 'Failed to approve registration');
+    }
+  } catch (e) {
+    showToast('❌ Error', 'Failed to approve registration');
+  }
+};
+
+
+
+window._rejectReg = async function (username) {
+  if (!confirm(`Are you sure you want to reject registration for ${username}?`)) return;
+  try {
+    const res = await fetch(`/api/admin/registrations/${username}/reject`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('❌ User Rejected', `Registration for ${username} deleted.`);
+      loadRegistrations();
+    }
+  } catch (e) {
+    showToast('❌ Error', 'Failed to reject registration');
+  }
+}
+
 
 
 /**
@@ -187,6 +300,22 @@ function handleAdminMessage(message) {
       loadAuditLog();
       break;
 
+    case 'new_registration':
+      // A live user submitted a registration request
+      showToast('👤 New Access Request', `User ${message.data.username} (${message.data.department}) has requested access.`);
+      loadRegistrations();
+      break;
+
+    case 'vpn_login_alert':
+      // VPN login detected — show toast in admin console
+      const vpn = message.data;
+      const vpnStatus = vpn.login_success ? '✓ Login OK' : '✗ Login Failed';
+      showToast(
+        '🛡️ VPN LOGIN DETECTED',
+        `${vpn.username} from ${vpn.source_ip} (${vpn.vpn_provider}, ${vpn.city}, ${vpn.country}) — ${vpnStatus}`
+      );
+      break;
+
     case 'admin_connected':
       console.log('[ADMIN] Connected with stats:', message.data);
       break;
@@ -221,12 +350,22 @@ function renderAlertList() {
   const list = document.getElementById('admin-alert-list');
   if (!list) return;
 
-  if (alerts.length === 0) {
+  const sourceFilter = document.getElementById('admin-source-filter')?.value || '';
+  let filteredAlerts = alerts;
+
+  if (sourceFilter) {
+    filteredAlerts = alerts.filter(alert => {
+      const source = alert.event_data?.event_source || 'replayed_dataset';
+      return source === sourceFilter;
+    });
+  }
+
+  if (filteredAlerts.length === 0) {
     list.innerHTML = '<div class="admin-empty">No alerts match current filters</div>';
     return;
   }
 
-  list.innerHTML = alerts.map(alert => {
+  list.innerHTML = filteredAlerts.map(alert => {
     const isCritical = alert.threat_action === 'CRITICAL_ALERT';
     const isBlock = alert.threat_action === 'BLOCK';
     const severityClass = isCritical ? 'severity-critical' : isBlock ? 'severity-high' : 'severity-medium';
@@ -237,6 +376,11 @@ function renderAlertList() {
     const scorePercent = ((alert.threat_score || 0) * 100).toFixed(1);
     const timeStr = alert.created_at ? new Date(alert.created_at).toLocaleTimeString() : '--';
 
+    const source = alert.event_data?.event_source || 'replayed_dataset';
+    const sourceBadgeHtml = source === 'live_portal'
+      ? `<span class="badge-live" style="margin-left: 8px;">🌐 Live</span>`
+      : `<span class="badge-replayed" style="margin-left: 8px;">📊 Replayed</span>`;
+
     return `
       <div class="admin-alert-card ${severityClass} ${statusClass} ${isSelected}"
            data-alert-id="${alert.alert_id}"
@@ -245,6 +389,7 @@ function renderAlertList() {
           <span class="admin-severity-badge ${severityClass}">
             ${isCritical ? '🔴 CRITICAL' : isBlock ? '🟠 BLOCK' : '🟡 MONITOR'}
           </span>
+          ${sourceBadgeHtml}
           <span class="admin-alert-status ${statusClass}">
             ${alert.status.toUpperCase()}
           </span>
@@ -268,7 +413,7 @@ function renderAlertList() {
 /**
  * Select and show full detail for an alert
  */
-window._selectAdminAlert = async function(alertId) {
+window._selectAdminAlert = async function (alertId) {
   selectedAlertId = alertId;
   renderAlertList(); // Update selection highlight
 
@@ -300,7 +445,7 @@ function renderAlertDetail(alert) {
   // Build pipeline stages table
   const stagesHtml = (alert.pipeline_stages || []).map((s, i) => `
     <tr>
-      <td style="color: var(--text-muted);">${s.stage_number || i+1}</td>
+      <td style="color: var(--text-muted);">${s.stage_number || i + 1}</td>
       <td>${s.stage_name || '--'}</td>
       <td><span class="admin-stage-status ${s.status === 'pending_approval' ? 'pending' : ''}">${s.status || '--'}</span></td>
       <td style="color: var(--amber);">${(s.latency_ms || 0).toFixed(1)}ms</td>
@@ -363,7 +508,22 @@ function renderAlertDetail(alert) {
           <div class="admin-fact"><span class="admin-fact-key">Data Downloaded</span><span class="admin-fact-val">${(event.data_downloaded_mb || 0).toFixed(1)} MB</span></div>
           <div class="admin-fact"><span class="admin-fact-key">Pipeline Latency</span><span class="admin-fact-val">${(alert.total_latency_ms || 0).toFixed(1)}ms</span></div>
           <div class="admin-fact"><span class="admin-fact-key">Created</span><span class="admin-fact-val">${alert.created_at ? new Date(alert.created_at).toLocaleString() : '--'}</span></div>
+          <div class="admin-fact">
+            <span class="admin-fact-key">Event Source</span>
+            <span class="admin-fact-val badge-${(event.event_source || 'replayed_dataset') === 'live_portal' ? 'live' : 'replayed'}">
+              ${(event.event_source || 'replayed_dataset') === 'live_portal' ? '🌐 Live Portal' : '📊 Replayed Dataset'}
+            </span>
+          </div>
         </div>
+      </div>
+
+      <!-- Threat Trigger Reasons -->
+      <div class="admin-facts-section">
+        <div class="admin-section-label">⚠️ Threat Trigger Reasons</div>
+        ${event.threat_reasons && event.threat_reasons.length > 0
+      ? `<ul class="admin-reasons-list">${event.threat_reasons.map(r => `<li>${r}</li>`).join('')}</ul>`
+      : `<div style="color: var(--text-muted); font-size: 12px; margin-top: 8px; font-family: var(--font-mono); padding-left: 8px;">No explicit anomalous factors detected (ensemble probability model match)</div>`
+    }
       </div>
 
       <!-- Geo Info -->
@@ -397,14 +557,14 @@ function renderAlertDetail(alert) {
         </div>
       </div>
 
-      ${alert.rotation_result ? `
+      ${alert.rotation_result && alert.rotation_result.user_rotation ? `
       <!-- Rotation Result -->
       <div class="admin-facts-section">
         <div class="admin-section-label">🔐 Vault Rotation Result</div>
         <div class="admin-rotation-result">
-          <div class="admin-fact"><span class="admin-fact-key">Success</span><span class="admin-fact-val ${alert.rotation_result.success ? 'success' : 'danger'}">${alert.rotation_result.success ? '✅ YES' : '❌ FAILED'}</span></div>
-          <div class="admin-fact"><span class="admin-fact-key">Rotation #</span><span class="admin-fact-val">${alert.rotation_result.rotation_number || '--'}</span></div>
-          <div class="admin-fact"><span class="admin-fact-key">Rotation ID</span><span class="admin-fact-val" style="font-size: 10px;">${alert.rotation_result.rotation_id || '--'}</span></div>
+          <div class="admin-fact"><span class="admin-fact-key">Success</span><span class="admin-fact-val ${alert.rotation_result.user_rotation.success ? 'success' : 'danger'}">${alert.rotation_result.user_rotation.success ? '✅ YES' : '❌ FAILED'}</span></div>
+          <div class="admin-fact"><span class="admin-fact-key">Rotation #</span><span class="admin-fact-val">${alert.rotation_result.user_rotation.rotation_number || '--'}</span></div>
+          <div class="admin-fact"><span class="admin-fact-key">Rotation ID</span><span class="admin-fact-val" style="font-size: 10px;">${alert.rotation_result.user_rotation.rotation_id || '--'}</span></div>
         </div>
       </div>
       ` : ''}
@@ -442,7 +602,7 @@ function renderAlertDetail(alert) {
 /**
  * Approve credential rotation
  */
-window._approveAlert = async function(alertId) {
+window._approveAlert = async function (alertId) {
   const notes = document.getElementById('admin-notes-input')?.value || '';
   const btn = document.querySelector('.admin-btn-approve');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Rotating credentials...'; }
@@ -476,7 +636,7 @@ window._approveAlert = async function(alertId) {
 /**
  * Reject alert (false positive)
  */
-window._rejectAlert = async function(alertId) {
+window._rejectAlert = async function (alertId) {
   const notes = document.getElementById('admin-notes-input')?.value || '';
 
   try {

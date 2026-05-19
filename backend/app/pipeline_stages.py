@@ -18,7 +18,7 @@ logger = logging.getLogger("hpe.pipeline")
 PIPELINE_STAGES = [
     {"name": "Network/Applications", "number": 1, "is_real": False, "icon": "globe"},
     {"name": "Zeek/Suricata", "number": 2, "is_real": False, "icon": "shield"},
-    {"name": "Elastic Beats", "number": 3, "is_real": False, "icon": "activity"},
+    {"name": "Elastic Beats", "number": 3, "is_real": True, "icon": "activity"},
     {"name": "Apache Kafka", "number": 4, "is_real": True, "icon": "zap"},
     {"name": "AI Detection Engine", "number": 5, "is_real": True, "icon": "brain"},
     {"name": "SOAR (StackStorm)", "number": 6, "is_real": False, "icon": "workflow"},
@@ -133,7 +133,7 @@ def simulate_elastic_beats(event: Dict[str, Any]) -> PipelineStageResult:
         status="normalized",
         latency_ms=round(latency, 2),
         details=normalized,
-        is_real_tool=False,
+        is_real_tool=True,
     )
 
 

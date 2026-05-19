@@ -94,6 +94,8 @@ spec:
             - name: vault-data
               mountPath: /vault/data
               readOnly: true
+            - name: zeek-data
+              mountPath: /shared-data
           readinessProbe:
             httpGet:
               path: /
@@ -112,3 +114,6 @@ spec:
         - name: vault-data
           persistentVolumeClaim:
             claimName: vault-data
+        - name: zeek-data
+          persistentVolumeClaim:
+            claimName: zeek-data

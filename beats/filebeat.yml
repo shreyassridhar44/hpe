@@ -12,6 +12,7 @@ filebeat.inputs:
       - dissect:
           tokenizer: "%{ts}\t%{orig_uid}\t%{orig_h}\t%{orig_p}\t%{resp_h}\t%{resp_p}\t%{proto}\t%{service}\t%{duration}\t%{orig_bytes}\t%{resp_bytes}\t%{conn_state}\t%{local_orig}\t%{local_resp}\t%{missed_bytes}\t%{history}\t%{orig_pkts}\t%{orig_ip_bytes}\t%{resp_pkts}\t%{resp_ip_bytes}"
           field: "message"
+          target_prefix: ""
       - convert:
           fields:
             - {from: "orig_p", to: "orig_p", type: long}

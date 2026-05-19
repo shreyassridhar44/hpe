@@ -53,9 +53,11 @@ class ConnectionManager:
         self.channel = channel
         self.connections: List[WebSocket] = []
         self._pubsub_thread: Optional[threading.Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def start_redis_listener(self, loop: asyncio.AbstractEventLoop):
         """Start background thread listening to Redis channel."""
+        self._loop = loop  # Store loop reference for sync broadcast support
         if not _redis_available:
             logger.info(f"[WS:{self.name}] Redis unavailable — local mode only")
             return
@@ -124,6 +126,19 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.remove(ws)
+
+    def broadcast_sync(self, data: dict):
+        """
+        Schedule a broadcast from a synchronous (non-async) context.
+        Used by sync FastAPI endpoints running in worker threads.
+        """
+        if self._loop is None:
+            logger.warning(f"[WS:{self.name}] No event loop stored — cannot broadcast from sync context")
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self.broadcast(data), self._loop)
+        except Exception as e:
+            logger.warning(f"[WS:{self.name}] Sync broadcast failed: {e}")
 
     @property
     def active_count(self) -> int:

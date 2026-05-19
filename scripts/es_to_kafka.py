@@ -72,11 +72,16 @@ def connect_kafka(kafka_servers: str) -> Producer:
     return producer
 
 
-def iter_documents(es: Elasticsearch, index: str, batch_size: int, limit: int) -> Iterator[Dict[str, Any]]:
+def iter_documents(
+    es: Elasticsearch, index: str, batch_size: int, limit: int, watch: bool = False
+) -> Iterator[Dict[str, Any]]:
+    query = {"match_all": {}}
+    if watch:
+        query = {"range": {"@timestamp": {"gte": "now-30s"}}}
     scan_args = {
         "client": es,
         "index": index,
-        "query": {"query": {"match_all": {}}},
+        "query": {"query": query},
         "size": batch_size,
         "scroll": "2m",
     }
@@ -121,10 +126,11 @@ def transfer_batch(
     limit: int,
     dry_run: bool,
     seen_ids: Set[str],
+    watch: bool = False,
 ) -> int:
     """Transfer one batch of documents from ES to Kafka, skipping already-seen IDs."""
     sent = 0
-    for doc in iter_documents(es, index, batch_size, limit):
+    for doc in iter_documents(es, index, batch_size, limit, watch):
         doc_id = doc.get("_es_id", "")
         if doc_id in seen_ids:
             continue
@@ -172,6 +178,7 @@ def main() -> int:
                 sent = transfer_batch(
                     es, producer, args.index, args.topic,
                     args.batch_size, args.limit, args.dry_run, seen_ids,
+                    watch=True,
                 )
                 if sent > 0:
                     total_sent += sent

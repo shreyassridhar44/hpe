@@ -1,0 +1,7 @@
+authtoken: 3DlkjeVpApYupiNqd196JOKQFRM_vgAgBLjn2rPEEVk287k4
+version: "2"
+tunnels:
+  hpe-portal:
+    proto: http
+    addr: login-portal:80
+    pooling_enabled: true

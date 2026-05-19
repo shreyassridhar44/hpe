@@ -1,0 +1,13 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.db
+# dataset/ (removed to allow baking into image)
+frontend/node_modules/
+backend/venv/
+venv/
+.env
+.vscode/
+.idea/

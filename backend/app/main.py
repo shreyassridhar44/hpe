@@ -235,12 +235,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Register routes ───────────────────────────────────────────────────────────
+from app.routes import predict, health, pipeline, simulate, admin, auth
+
+# Register routes
 app.include_router(predict.router)
 app.include_router(health.router)
 app.include_router(pipeline.router)
 app.include_router(simulate.router)
 app.include_router(admin.router)
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 
 @app.get("/")

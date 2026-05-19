@@ -65,7 +65,8 @@ spec:
 
       volumes:
         - name: shared-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: zeek-data
         - name: filebeat-config
           configMap:
             name: filebeat-live-config

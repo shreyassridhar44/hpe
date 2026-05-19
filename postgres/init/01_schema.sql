@@ -38,6 +38,25 @@ CREATE TABLE IF NOT EXISTS hpe_infra_leases (
     revoked_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS hpe_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(64) UNIQUE NOT NULL,
+    password_hash VARCHAR(256), -- Nullable for users awaiting admin approval
+    department VARCHAR(64),
+    last_login TIMESTAMPTZ,
+    failed_attempts INT DEFAULT 0,
+    status VARCHAR(32) DEFAULT 'active'
+);
+-- Using plain hashes for demo simplicity (SHA256)
+-- 'password123' -> ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f
+INSERT INTO hpe_users (username, password_hash, department) VALUES 
+('alice', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f', 'Engineering'),
+('bob', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f', 'HR'),
+('charlie', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f', 'Finance'),
+('admin', '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', 'Security')
+ON CONFLICT DO NOTHING;
+
+
 -- Grant vault-root full control so Vault can CREATE/DROP dynamic service users
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "vault-root";
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "vault-root";
@@ -98,5 +117,19 @@ CREATE TABLE IF NOT EXISTS hpe_threat_metrics (
     high_risk_users JSONB
 );
 
+CREATE TABLE IF NOT EXISTS hpe_pipeline_metrics (
+    id SERIAL PRIMARY KEY,
+    total_requests BIGINT DEFAULT 0,
+    total_threats BIGINT DEFAULT 0,
+    total_allowed BIGINT DEFAULT 0,
+    total_monitored BIGINT DEFAULT 0,
+    total_blocked BIGINT DEFAULT 0,
+    total_critical BIGINT DEFAULT 0,
+    total_latency_ms DOUBLE PRECISION DEFAULT 0,
+    attack_types JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO hpe_pipeline_metrics (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "vault-root";
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "vault-root";
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "vault-root";

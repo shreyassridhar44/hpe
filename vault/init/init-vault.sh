@@ -26,12 +26,20 @@ done
 echo ">>> Vault API reachable."
 
 # ── Initialize or unseal ──────────────────────────────────────────────────────
-HEALTH=$(wget -qO- "$VAULT_ADDR/v1/sys/health" 2>/dev/null || echo '{}')
-INITIALIZED=$(echo "$HEALTH" | grep -o '"initialized":[a-z]*' | grep -o '[a-z]*$')
+INITIALIZED=$(vault status -address="$VAULT_ADDR" 2>/dev/null | grep -i '^Initialized' | grep -oE 'true|false')
 echo ">>> Initialized: $INITIALIZED"
 
-if [ "$INITIALIZED" = "true" ] && [ -f "$INIT_FILE" ]; then
+# If INITIALIZED is empty, try sys/health as a fallback
+if [ -z "$INITIALIZED" ]; then
+  HEALTH=$(wget -qO- --no-check-certificate "$VAULT_ADDR/v1/sys/health" 2>/dev/null || echo '{}')
+  INITIALIZED=$(echo "$HEALTH" | grep -o '"initialized"[[:space:]]*:[[:space:]]*[a-z]*' | grep -oE 'true|false')
+  echo ">>> Initialized (fallback): $INITIALIZED"
+fi
+
+if [ "$INITIALIZED" = "true" ]; then
   echo ">>> Already initialized. Unsealing..."
+
+
   UNSEAL_KEY=$(cat /vault/data/.unseal_key)
   ROOT_TOKEN=$(cat /vault/data/.root_token)
   wget -qO- \

@@ -468,11 +468,11 @@ def _consumer_loop(process_callback, loop, result_queue):
             logger.info(f"Consumed event from partition {msg.partition()} offset {msg.offset()}")
 
             result = process_callback(raw)
-
-            asyncio.run_coroutine_threadsafe(
-                result_queue.put(result),
-                loop
-            )
+            if result:
+                asyncio.run_coroutine_threadsafe(
+                    result_queue.put(result),
+                    loop
+                )
 
         except Exception as e:
             logger.error(f"Consumer loop error: {e}")

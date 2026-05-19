@@ -15,7 +15,8 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # ── Lint & Static Analysis ──────────────────────────────────────────────
@@ -86,7 +87,7 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           cd backend
-          python -m pytest tests/test_inference.py tests/test_schemas.py tests/test_config.py tests/test_pipeline_stages.py tests/test_threat_engine.py \
+          python -m pytest tests/ \
             -v --tb=short \
             --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml \
             --junitxml=test-results.xml

@@ -1,6 +1,5 @@
-#version: '3.8'
-
 services:
+
   # ── Apache Kafka (KRaft mode — Official Apache Image) ──
 
   kafka:
@@ -74,7 +73,7 @@ services:
     volumes:
       - ./dataset:/dataset:ro
       - ./dataset/zeek:/zeek_out
-    command: sh -c "mkdir -p /zeek_out && cd /zeek_out && zeek -C -r /dataset/conn.pcap && tail -f /dev/null"
+    command: sh -c "mkdir -p /zeek_out && cd /zeek_out && (zeek -C -r /dataset/conn.pcap || true) && tail -f /dev/null"
     depends_on:
       - elasticsearch
     networks:
@@ -202,12 +201,14 @@ services:
       - MODEL_PATH=/app/model_output/pipeline_artifacts_v2.joblib
       - TEST_EVENTS_PATH=/app/model_output/test_events.json
       - PROFILES_PATH=/app/model_output/user_profiles.json
+      - ZEEK_LOG_PATH=/app/dataset/zeek-live/conn.log
       # VAULT_TOKEN is intentionally removed in Phase 3.
+
       # The backend reads role_id + secret_id from /vault/data/.approle_credentials
       # and exchanges them for a short-lived token via AppRole auth.
     volumes:
       - ./model_output:/app/model_output:ro
-      - ./dataset:/app/dataset:ro
+      - ./dataset:/app/dataset
       - vault_data:/vault/data:ro
     depends_on:
       kafka:
@@ -235,18 +236,19 @@ services:
       - backend
     networks:
       - hpe-network
-redis:
-  image: redis:7-alpine
-  container_name: hpe-redis
-  ports:
-    - "6379:6379"
-  networks:
-    - hpe-network
-  healthcheck:
-    test: [ "CMD", "redis-cli", "ping" ]
-    interval: 10s
-    timeout: 5s
-    retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: hpe-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - hpe-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ── Live Replay: Streams dataset conn.log as live traffic ──
   # Reads dataset/zeek/conn.log and writes it line-by-line to
@@ -311,6 +313,57 @@ redis:
     command: filebeat -e -c /usr/share/filebeat/filebeat.yml --strict.perms=false
     profiles:
       - live-kafka
+
+  # ── Public Login Portal (Served via Nginx) ──
+  login-portal:
+    image: nginx:alpine
+    container_name: hpe-login-portal
+    ports:
+      - "8080:80"
+    volumes:
+      - ./public-login:/usr/share/nginx/html:ro
+      - ./public-login/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - hpe-network
+    profiles:
+      - live-replay
+
+  adminer:
+    image: adminer
+    container_name: hpe-adminer
+    ports:
+      - "9090:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      - postgres
+    networks:
+      - hpe-network
+    profiles:
+      - live-replay
+
+  # ── Ngrok Tunnel (Unified Public Access) ──
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: hpe-ngrok
+    volumes:
+      - ./ngrok.yml:/etc/ngrok.yml:ro
+    command:
+      - start
+      - --all
+      - --config
+      - /etc/ngrok.yml
+    ports:
+      - "4040:4040"
+    depends_on:
+      - login-portal
+      - backend
+    networks:
+      - hpe-network
+    profiles:
+      - live-replay
 
 volumes:
   kafka_data:

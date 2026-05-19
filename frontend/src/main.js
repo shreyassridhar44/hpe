@@ -6,7 +6,7 @@
 import './styles/index.css';
 import { initGlobe, addArc } from './globe.js';
 import { renderPipeline, animatePipelineEvent } from './pipeline.js';
-import { renderDashboard, updateDashboard, updateHealth, updateModelMetrics } from './dashboard.js';
+import { renderDashboard, updateDashboard, updateHealth, updateModelMetrics, showVpnAlert } from './dashboard.js';
 import { initStarField } from './effects.js';
 import { renderAdminDashboard, connectAdminWebSocket } from './admin.js';
 
@@ -118,8 +118,13 @@ function handleSimulationMessage(message) {
       break;
 
     case 'pipeline_result':
-      // Queue the event for sequential processing
       eventQueue.push(message.data);
+      break;
+
+    case 'vpn_login_alert':
+      // Instant VPN login detection — show banner immediately
+      console.log('[HPE] 🛡️ VPN Login Alert received via WebSocket:', message.data);
+      showVpnAlert(message.data);
       break;
 
     case 'error':
@@ -139,13 +144,18 @@ async function processEventQueue() {
         const event = data.event;
         const prediction = data.prediction;
 
-        // Update globe with arc
-        addArc(event, prediction);
+        const isLivePortal = (prediction.event_summary?.event_source === 'live_portal');
 
-        // Animate pipeline
-        await animatePipelineEvent(prediction);
+        // Only draw globe arcs and animate pipeline for live logins
+        if (isLivePortal) {
+          // Update globe with arc
+          addArc(event, prediction);
 
-        // Update dashboard
+          // Animate pipeline
+          await animatePipelineEvent(prediction);
+        }
+
+        // Always update dashboard (populates threat feeds & logs for both sources)
         updateDashboard(prediction);
 
         // Update HUD

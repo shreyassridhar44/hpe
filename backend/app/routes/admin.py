@@ -5,9 +5,16 @@ Phase 5: Kafka credential rotation via Vault KV + reconnect on CRITICAL_ALERT.
 """
 
 import logging
+import hashlib
+from pydantic import BaseModel
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.schemas import ApprovalRequest, ApprovalResponse
+
+class RegistrationApproval(BaseModel):
+    password: str
+
 from app import admin_store, vault_client, vault_infra_client
+
 from app.ws_manager import admin_manager
 
 logger = logging.getLogger("hpe.admin")
@@ -254,6 +261,54 @@ async def get_infra_leases():
         "total_infra_rotations": vault_infra_client.get_infra_rotation_count(),
         "vault_infra_connected": vault_infra_client.is_connected(),
     }
+
+
+@router.get("/registrations")
+async def get_registrations():
+    """Fetch all users currently in 'pending' status."""
+    from app import db
+    query = "SELECT username, department, status FROM hpe_users WHERE status = 'pending'"
+    try:
+        users = db.execute_query(query, fetch=True, fetch_all=True)
+        # Dynamically append VPN indicator based on signature
+        for u in users:
+            u["is_vpn"] = ("vpn" in str(u.get("username", "")).lower() or "vpn" in str(u.get("department", "")).lower())
+        return {"total": len(users), "registrations": users}
+    except Exception as e:
+        logger.error(f"Failed to fetch pending registrations: {e}")
+        return {"error": str(e)}
+
+
+@router.post("/registrations/{username}/approve")
+async def approve_registration(username: str, approval: RegistrationApproval):
+    """Approve a pending user registration and set their password."""
+    from app import db
+    pass_hash = hashlib.sha256(approval.password.encode('utf-8')).hexdigest()
+    try:
+        db.execute_query(
+            "UPDATE hpe_users SET status = 'active', password_hash = %s WHERE username = %s", 
+            (pass_hash, username)
+        )
+        logger.info(f"[ADMIN] Registration approved and credentials issued for user: {username}")
+        return {"success": True, "message": f"User {username} approved and credentials issued."}
+    except Exception as e:
+        logger.error(f"Failed to approve registration for {username}: {e}")
+        return {"success": False, "message": str(e)}
+
+
+
+@router.post("/registrations/{username}/reject")
+async def reject_registration(username: str):
+    """Reject and delete a pending user registration."""
+    from app import db
+    try:
+        db.execute_query("DELETE FROM hpe_users WHERE username = %s AND status = 'pending'", (username,))
+        logger.info(f"[ADMIN] Registration rejected/deleted for user: {username}")
+        return {"success": True, "message": f"Registration for {username} rejected."}
+    except Exception as e:
+        logger.error(f"Failed to reject registration for {username}: {e}")
+        return {"success": False, "message": str(e)}
+
 
 
 @router.post("/reset")
