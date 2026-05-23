@@ -219,9 +219,9 @@ This deploys the entire pipeline into a Kubernetes cluster with **HA replicas** 
 | Kafka | StatefulSet | 2 | KRaft mode, headless service with `publishNotReadyAddresses` |
 | Elasticsearch | StatefulSet | 1 | Single-node dev mode, 1 Gi PVC |
 | PostgreSQL | StatefulSet | 1 | Init ConfigMap for schema + extensions |
-| Vault | StatefulSet | 1 | Raft storage on PVC, server mode |
+| Vault | StatefulSet | 1 | Raft storage on PVC, server mode with auto-unseal sidecar |
 | Vault Init | Job | 1 (run-once) | Phases 1-5: init, unseal, DB engine, AppRole, Kafka creds |
-| Backend | Deployment | 5| Init container waits for all deps + `.approle_credentials` |
+| Backend | Deployment | 5 | Init container waits for all deps + `.approle_credentials` |
 | Frontend | Deployment | 3 | Vite dev server behind NodePort |
 
 #### Prerequisites
@@ -257,13 +257,14 @@ The project includes a **one-shot deployment script** that handles everything:
 .\deploy.ps1 -Fresh
 ```
 
-The script performs these 6 phases:
+The script performs these 7 phases:
 1. **Configure Docker** — Points Docker CLI at Minikube's daemon
 2. **Build images** — `hpe-backend:latest` and `hpe-frontend:latest` inside Minikube
 3. **Create namespace + config** — Applies namespace, ConfigMap, Secrets, PVC
-4. **Deploy infrastructure** — PostgreSQL, Kafka (2 brokers), Elasticsearch, Vault
+4. **Deploy infrastructure** — PostgreSQL, Kafka (2 brokers), Elasticsearch, Vault RBAC, Vault
 5. **Vault initialization** — Runs the vault-init Job (init → unseal → database engine → AppRole → credential file)
-6. **Deploy application** — Backend (2 replicas) + Frontend (2 replicas)
+6. **Deploy application** — Backend (5 replicas) + Frontend (3 replicas)
+7. **Enable HPA** — Horizontal Pod Autoscaler for backend
 
 #### Step 4 — Manual deployment (Linux/Mac or if not using PowerShell)
 
@@ -287,6 +288,9 @@ kubectl apply -f k8s/vault-pvc.yaml
 kubectl apply -f k8s/postgres/
 kubectl apply -f k8s/kafka/
 kubectl apply -f k8s/elasticsearch/
+
+# Apply Vault RBAC before the StatefulSet so the ServiceAccount exists when the pod schedules
+kubectl apply -f k8s/vault/vault-rbac.yaml
 kubectl apply -f k8s/vault/vault-config-configmap.yaml
 kubectl apply -f k8s/vault/vault-service.yaml
 kubectl apply -f k8s/vault/vault-statefulset.yaml
@@ -328,6 +332,9 @@ kubectl logs -f deployment/backend -n hpe
 # View Vault init logs
 kubectl logs job/vault-init -n hpe
 
+# View auto-unseal sidecar logs
+kubectl logs vault-0 -c unseal-watcher -n hpe
+
 # Port-forward backend for direct API access
 kubectl port-forward service/backend 8000:8000 -n hpe
 
@@ -338,27 +345,17 @@ kubectl delete namespace hpe
 #### Vault Unsealing After Restart
 
 > **Why does Vault seal itself?**
-> Vault uses [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing) as a security mechanism. Every time Vault's container restarts (e.g., after `minikube stop` → `minikube start`), Vault deliberately seals itself. This is **by design** — if someone gains physical access to the server, they cannot read any secrets without the unseal key. This is not automated intentionally to preserve the security model.
+> Vault uses [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing) as a security mechanism. Every time Vault's container restarts (e.g., after `minikube stop` → `minikube start`), Vault deliberately seals itself. This is **by design** — if someone gains physical access to the server, they cannot read any secrets without the unseal key.
 
-If the dashboard shows **Vault** as red (🔴) after a Minikube restart, follow these steps:
+Unsealing is handled automatically. The Vault pod runs an `unseal-watcher` sidecar container that polls Vault's seal status every 15 seconds and calls the unseal API whenever it detects Vault has sealed itself after a restart — no manual steps required.
 
-**Step 1 — Check if Vault is sealed:**
+If the dashboard shows **Vault** as red (🔴) after a Minikube restart, the sidecar will restore it automatically within 15 seconds. You can watch it in real time:
+
 ```bash
-kubectl exec vault-0 -n hpe -- vault status
-```
-If `Sealed: true`, proceed to Step 2.
-
-**Step 2 — Retrieve the unseal key from the PVC:**
-```bash
-kubectl exec vault-0 -n hpe -- cat /vault/data/.unseal_key
+kubectl logs vault-0 -c unseal-watcher -n hpe -f
 ```
 
-**Step 3 — Unseal Vault using the key:**
-```bash
-kubectl exec vault-0 -n hpe -- vault operator unseal <YOUR_UNSEAL_KEY>
-```
-
-**Step 4 — Restart the backend so it reconnects to Vault:**
+Once Vault is unsealed, restart the backend so it reconnects:
 ```bash
 kubectl rollout restart deployment/backend -n hpe
 ```
@@ -473,20 +470,22 @@ k8s/
 │   ├── es-to-kafka-deployment.yaml
 │   ├── live-pipeline-configmap.yaml
 │   └── live-replay-deployment.yaml
-redis/
-├── redis-deployment.yaml
-├── redis-service.yaml
+├── redis/
+│   ├── redis-deployment.yaml
+│   └── redis-service.yaml
 ├── vault/
+│   ├── vault-rbac.yaml               # ServiceAccount, Role, RoleBinding for Vault pod
 │   ├── vault-config-configmap.yaml   # vault.hcl server config
-│   ├── vault-init-configmap.yaml     # Full init script (5 phases)
+│   ├── vault-init-configmap.yaml     # Full init script (Phases 1-5)
 │   ├── vault-init-job.yaml           # One-shot init Job
 │   ├── vault-service.yaml
-│   └── vault-statefulset.yaml
+│   └── vault-statefulset.yaml        # Includes auto-unseal sidecar
 ├── backend/
-│   ├── backend-deployment.yaml       # 2 replicas + init container
+│   ├── backend-deployment.yaml       # 5 replicas + init container
+│   ├── backend-hpa.yaml              # Horizontal Pod Autoscaler
 │   └── backend-service.yaml
 └── frontend/
-    ├── frontend-deployment.yaml      # 2 replicas
+    ├── frontend-deployment.yaml      # 3 replicas
     └── frontend-service.yaml
 ```
 

@@ -1,0 +1,61 @@
+# vault-rbac.yaml — RBAC for the Vault pod (Phase 6)
+#
+# Why this exists:
+#   The unseal-watcher sidecar (added in Phase 6) runs inside the vault pod
+#   and needs to be identifiable in audit logs. A dedicated ServiceAccount
+#   also lets us scope future Kubernetes auth policies specifically to Vault
+#   without touching the default service account.
+#
+# What this grants:
+#   - Read access to hpe-secrets (the VAULT_TOKEN fallback secret).
+#   - Nothing else. The sidecar only talks to the Vault API over localhost
+#     (127.0.0.1:8200) — it does not need any Kubernetes API permissions to
+#     do the unseal. The Role below is intentionally minimal.
+#
+# Apply order: namespace → this file → vault-statefulset.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-sa
+  namespace: hpe
+  labels:
+    app: vault
+    component: rbac
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-role
+  namespace: hpe
+  labels:
+    app: vault
+    component: rbac
+rules:
+  # Allow the Vault pod to read the hpe-secrets Secret (VAULT_TOKEN fallback).
+  # Scoped to the exact secret name so this Role cannot read anything else.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["hpe-secrets"]
+    verbs: ["get"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-rolebinding
+  namespace: hpe
+  labels:
+    app: vault
+    component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: vault-sa
+    namespace: hpe
+roleRef:
+  kind: Role
+  name: vault-role
+  apiGroup: rbac.authorization.k8s.io
