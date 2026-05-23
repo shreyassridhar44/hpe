@@ -1,4 +1,7 @@
 # Vault server mode with Raft storage — persistent across restarts
+# Phase 6: unseal-watcher sidecar added — automatically unseals Vault
+# whenever the pod restarts (e.g. after minikube stop/start), eliminating
+# the need for manual `vault operator unseal` commands.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -17,7 +20,9 @@ spec:
       labels:
         app: vault
     spec:
+      serviceAccountName: vault-sa
       containers:
+        # ── Primary Vault server container ─────────────────────────────────
         - name: vault
           image: hashicorp/vault:1.15.6
           command: ["vault", "server", "-config=/vault/config/vault.hcl"]
@@ -68,6 +73,97 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 5
+
+        # ── Phase 6: unseal-watcher sidecar ────────────────────────────────
+        # Both containers share the same network namespace (same pod), so
+        # 127.0.0.1:8200 reaches the Vault container directly without going
+        # through any Service — no token or auth needed for the unseal API.
+        #
+        # Security posture:
+        #   - Mounts vault-data PVC as readOnly: true — only reads the key
+        #   - Does NOT have access to the root token or AppRole credentials
+        #   - Only calls /v1/sys/unseal — cannot read or write any secrets
+        #   - The unseal key alone cannot decrypt Vault data (Transit seal
+        #     would eliminate even this exposure — see VAULT_GUIDE.md Phase 7)
+        #
+        # Behaviour:
+        #   - Polls vault status every 15 seconds
+        #   - If sealed (exit code 2) → reads key from PVC → calls unseal API
+        #   - If unsealed (exit code 0) → silent no-op
+        #   - If API unreachable → logs and retries (Vault still booting)
+        #   - Waits for the key file before attempting anything (first-boot
+        #     safety: vault-init Job hasn't run yet on a brand new cluster)
+        - name: unseal-watcher
+          image: hashicorp/vault:1.15.6
+          command:
+            - sh
+            - -c
+            - |
+              VAULT_ADDR="http://127.0.0.1:8200"
+              UNSEAL_KEY_FILE="/vault/data/.unseal_key"
+
+              echo "[unseal-watcher] Starting. Polling seal status every 15s."
+              echo "[unseal-watcher] Key file expected at: $UNSEAL_KEY_FILE"
+
+              while true; do
+                sleep 15
+
+                # ── Safety gate: wait for vault-init Job to complete ──────
+                # On a brand new cluster the key file does not exist yet.
+                # Don't attempt anything until vault-init writes it.
+                if [ ! -f "$UNSEAL_KEY_FILE" ]; then
+                  echo "[unseal-watcher] Key file not found yet — vault-init Job may still be running. Waiting..."
+                  continue
+                fi
+
+                # ── Check current seal status ─────────────────────────────
+                # vault status exit codes:
+                #   0 = unsealed and healthy
+                #   1 = error (API unreachable, local socket issue)
+                #   2 = sealed
+                vault status -address="$VAULT_ADDR" > /dev/null 2>&1
+                STATUS=$?
+
+                if [ "$STATUS" -eq 2 ]; then
+                  echo "[unseal-watcher] Vault is SEALED — attempting auto-unseal..."
+                  UNSEAL_KEY=$(cat "$UNSEAL_KEY_FILE")
+
+                  RESULT=$(wget -qO- \
+                    --header="Content-Type: application/json" \
+                    --post-data="{\"key\":\"$UNSEAL_KEY\"}" \
+                    "$VAULT_ADDR/v1/sys/unseal" 2>&1)
+
+                  if echo "$RESULT" | grep -q '"sealed":false'; then
+                    echo "[unseal-watcher] Vault unsealed successfully."
+                  else
+                    echo "[unseal-watcher] Unseal attempt failed. Response: $RESULT"
+                    echo "[unseal-watcher] Will retry in 15s."
+                  fi
+
+                elif [ "$STATUS" -eq 0 ]; then
+                  # Vault is healthy and unsealed — intentional no-op, no log spam
+                  :
+
+                else
+                  # STATUS=1: API not yet reachable (Vault still starting up)
+                  echo "[unseal-watcher] Vault API not reachable (status=$STATUS) — Vault may still be booting. Waiting..."
+                fi
+              done
+          env:
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:8200"
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "5m"
+            limits:
+              memory: "32Mi"
+              cpu: "20m"
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+              readOnly: true   # sidecar only ever reads .unseal_key — never writes
+
       volumes:
         - name: vault-config
           configMap:
