@@ -84,26 +84,70 @@ jobs:
 
       - name: Validate model performance
         if: steps.check-data.outputs.data_available == 'true'
+        env:
+          MIN_F1_THRESHOLD: ${{ env.MIN_F1_THRESHOLD }}
         run: |
           python -c "
-          import json, sys
-          
-          # Read the classification report to check F1
-          with open('model_output/classification_report.txt', 'r') as f:
+          import os, sys, re
+
+          report_path = 'model_output/classification_report.txt'
+          min_f1 = float(os.environ.get('MIN_F1_THRESHOLD', '0.70'))
+
+          # ── 1. Verify all artifacts exist ────────────────────────────────────
+          required = [
+              'model_output/pipeline_artifacts_v2.joblib',
+              'model_output/test_events.json',
+              'model_output/user_profiles.json',
+              report_path,
+          ]
+          for path in required:
+              if not os.path.exists(path):
+                  print(f'FAIL: Missing artifact: {path}')
+                  sys.exit(1)
+          print('OK: All artifacts present')
+
+          # ── 2. Parse the classification report ───────────────────────────────
+          with open(report_path, 'r') as f:
               content = f.read()
-          
-          # Extract F1 from the report
-          for line in content.split('\n'):
-              if 'Best Threshold' in line:
-                  threshold = float(line.split(':')[1].strip())
-                  print(f'Best threshold: {threshold}')
-          
-          # Check that model artifacts were created
-          import os
-          assert os.path.exists('model_output/pipeline_artifacts_v2.joblib'), 'Model artifact missing!'
-          assert os.path.exists('model_output/test_events.json'), 'Test events missing!'
-          assert os.path.exists('model_output/user_profiles.json'), 'User profiles missing!'
-          print('✅ All model artifacts validated successfully')
+
+          # Extract Threat class F1 score from sklearn classification_report format:
+          # '      Threat       0.xx      0.xx      0.xx      NNNN'
+          threat_match = re.search(
+              r'Threat\s+[\d.]+\s+[\d.]+\s+([\d.]+)\s+\d+', content
+          )
+          if not threat_match:
+              print('FAIL: Could not parse Threat class F1 from classification report')
+              print('Report content:')
+              print(content)
+              sys.exit(1)
+
+          threat_f1 = float(threat_match.group(1))
+
+          # Extract ensemble F1 (macro avg row) as secondary check
+          macro_match = re.search(
+              r'macro avg\s+[\d.]+\s+[\d.]+\s+([\d.]+)\s+\d+', content
+          )
+          macro_f1 = float(macro_match.group(1)) if macro_match else None
+
+          # Extract best threshold
+          thresh_match = re.search(r'Best Threshold:\s*([\d.]+)', content)
+          best_threshold = float(thresh_match.group(1)) if thresh_match else None
+
+          print(f'Threat class F1:  {threat_f1:.4f}')
+          print(f'Macro avg F1:     {macro_f1:.4f}' if macro_f1 else 'Macro avg F1: N/A')
+          print(f'Best threshold:   {best_threshold:.4f}' if best_threshold else '')
+          print(f'Minimum required: {min_f1:.4f}')
+
+          # ── 3. Gate: fail if below threshold ─────────────────────────────────
+          if threat_f1 < min_f1:
+              print(f'')
+              print(f'FAIL: Threat class F1 ({threat_f1:.4f}) is below minimum threshold ({min_f1:.4f})')
+              print(f'The model is not performing well enough to be deployed.')
+              print(f'Check training data quality, feature engineering, or hyperparameters.')
+              sys.exit(1)
+
+          print(f'')
+          print(f'PASS: Model meets performance requirements (F1={threat_f1:.4f} >= {min_f1:.4f})')
           "
 
       - name: Upload MLflow artifacts
