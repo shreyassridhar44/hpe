@@ -150,6 +150,45 @@ jobs:
           print(f'PASS: Model meets performance requirements (F1={threat_f1:.4f} >= {min_f1:.4f})')
           "
 
+      - name: Write model performance summary
+        if: steps.check-data.outputs.data_available == 'true'
+        env:
+          MIN_F1_THRESHOLD: ${{ env.MIN_F1_THRESHOLD }}
+        run: |
+          python -c "
+          import re, os
+
+          with open('model_output/classification_report.txt', 'r') as f:
+              content = f.read()
+
+          threat_f1   = re.search(r'Threat\s+[\d.]+\s+[\d.]+\s+([\d.]+)', content)
+          threat_prec = re.search(r'Threat\s+([\d.]+)', content)
+          threat_rec  = re.search(r'Threat\s+[\d.]+\s+([\d.]+)', content)
+          thresh      = re.search(r'Best Threshold:\s*([\d.]+)', content)
+          duration    = re.search(r'Training Duration:\s*([\d.]+)', content)
+          min_f1      = float(os.environ.get('MIN_F1_THRESHOLD', '0.70'))
+
+          f1     = float(threat_f1.group(1)) if threat_f1 else 0
+          status = '✅ PASS' if f1 >= min_f1 else '❌ FAIL'
+
+          summary = f'''## 🤖 Model Training Results
+
+| Metric | Value |
+|--------|-------|
+| Status | {status} |
+| Threat class F1 | {threat_f1.group(1) if threat_f1 else 'N/A'} |
+| Threat precision | {threat_prec.group(1) if threat_prec else 'N/A'} |
+| Threat recall | {threat_rec.group(1) if threat_rec else 'N/A'} |
+| Best threshold | {thresh.group(1) if thresh else 'N/A'} |
+| Min required F1 | {min_f1} |
+| Training duration | {duration.group(1) + 's' if duration else 'N/A'} |
+'''
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(summary)
+          print('Performance summary written to GitHub Actions job summary')
+          "
+
       - name: Upload MLflow artifacts
         if: steps.check-data.outputs.data_available == 'true'
         uses: actions/upload-artifact@v4

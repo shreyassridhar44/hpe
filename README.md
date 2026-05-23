@@ -1,4 +1,8 @@
 # HPE: Enterprise Network Threat Detection Pipeline
+
+[![ML Pipeline](https://github.com/HPE-Interns/hpe/actions/workflows/ml-pipeline.yml/badge.svg)](https://github.com/HPE-Interns/hpe/actions/workflows/ml-pipeline.yml)
+[![CI Pipeline](https://github.com/HPE-Interns/hpe/actions/workflows/ci.yml/badge.svg)](https://github.com/HPE-Interns/hpe/actions/workflows/ci.yml)
+
 HPE is a production-grade, AI-powered cybersecurity threat detection pipeline. It simulates a modern Security Operations Center (SOC) backend and visualizes real-time network traffic interceptions via a stunning 3D WebGL interface, a Structural Spatial (Bento Box) dashboard, and a Security Admin Console with human-in-the-loop credential rotation.
 
 ## Overview
@@ -620,6 +624,14 @@ minikube stop
 ```
 
 After a hard reset, re-run `python export_v2_model.py` before starting again.
+
+---
+
+### Model Performance Gate
+
+The ML pipeline enforces a minimum **Threat class F1 score of 0.70** before a trained model can be uploaded as a CI artifact. The gate runs automatically on every push that touches `export_v2_model.py`, the dataset, or the inference code. If the score falls below the threshold, the workflow exits non-zero and blocks the artifact upload.
+
+The threshold is controlled by `MIN_F1_THRESHOLD` in `.github/workflows/ml-pipeline.yml`. After each successful run, a formatted results table (F1, precision, recall, best threshold, training duration) is written to the GitHub Actions job summary and visible directly in the PR UI.
 
 ## Team
 HPE Code Project Interns

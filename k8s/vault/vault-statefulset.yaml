@@ -1,7 +1,7 @@
 # Vault server mode with Raft storage — persistent across restarts
-# Phase 6: unseal-watcher sidecar added — automatically unseals Vault
-# whenever the pod restarts (e.g. after minikube stop/start), eliminating
-# the need for manual `vault operator unseal` commands.
+# The unseal-watcher sidecar automatically unseals Vault whenever the pod
+# restarts (e.g. after minikube stop/start), eliminating the need for
+# manual `vault operator unseal` commands.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -74,7 +74,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
 
-        # ── Phase 6: unseal-watcher sidecar ────────────────────────────────
+        # ── unseal-watcher sidecar ─────────────────────────────────────────
         # Both containers share the same network namespace (same pod), so
         # 127.0.0.1:8200 reaches the Vault container directly without going
         # through any Service — no token or auth needed for the unseal API.
@@ -83,8 +83,8 @@ spec:
         #   - Mounts vault-data PVC as readOnly: true — only reads the key
         #   - Does NOT have access to the root token or AppRole credentials
         #   - Only calls /v1/sys/unseal — cannot read or write any secrets
-        #   - The unseal key alone cannot decrypt Vault data (Transit seal
-        #     would eliminate even this exposure — see VAULT_GUIDE.md Phase 7)
+        #   - The unseal key alone cannot decrypt Vault data without the
+        #     encrypted storage backend (Raft on PVC)
         #
         # Behaviour:
         #   - Polls vault status every 15 seconds

@@ -1,10 +1,10 @@
-# vault-rbac.yaml — RBAC for the Vault pod (Phase 6)
+# vault-rbac.yaml — RBAC for the Vault pod
 #
 # Why this exists:
-#   The unseal-watcher sidecar (added in Phase 6) runs inside the vault pod
-#   and needs to be identifiable in audit logs. A dedicated ServiceAccount
-#   also lets us scope future Kubernetes auth policies specifically to Vault
-#   without touching the default service account.
+#   The unseal-watcher sidecar runs inside the vault pod and needs to be
+#   identifiable in audit logs. A dedicated ServiceAccount also lets us
+#   scope future Kubernetes auth policies specifically to Vault without
+#   touching the default service account.
 #
 # What this grants:
 #   - Read access to hpe-secrets (the VAULT_TOKEN fallback secret).
